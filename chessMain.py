@@ -1,7 +1,7 @@
 import pygame as pg
 import chess_engine as chessEngine
 import smartMoveFinder as AI_move
-# from network import Network
+from network import Network, NetworkError
 
 # Initialize pygame to get display info
 pg.init()
@@ -9,8 +9,6 @@ display_info = pg.display.Info()
 SCREEN_WIDTH = display_info.current_w
 SCREEN_HEIGHT = display_info.current_h
 
-# Calculate appropriate size (80% of screen height to leave space for taskbar/title bar)
-# Keep it square for the chess board
 MAX_SIZE = int(min(SCREEN_WIDTH * 0.8, SCREEN_HEIGHT * 0.8))
 WIDTH = HEIGHT = MAX_SIZE
 
@@ -232,49 +230,52 @@ def show_pause_menu(screen, clock, gs, valid_moves, square_selected):
 def draw_waiting_screen(screen, message):
     """Display waiting screen for network connection"""
     screen.fill(pg.Color(40, 40, 40))
-    # Scale font size
     font_size = int(40 * (HEIGHT / 960))
     font = pg.font.SysFont("Arial", font_size, True)
-    text = font.render(message, True, pg.Color(255, 255, 255))
-    text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
-    screen.blit(text, text_rect)
+    lines = message.split("\n")
+    for idx, line in enumerate(lines):
+        text = font.render(line, True, pg.Color(255, 255, 255))
+        vertical_offset = (idx - (len(lines) - 1) / 2) * font_size * 1.2
+        text_rect = text.get_rect(center=(WIDTH // 2, int(HEIGHT // 2 + vertical_offset)))
+        screen.blit(text, text_rect)
     pg.display.flip()
 
 def play_online_game(screen, clock):
     """Handle online multiplayer game"""
-    draw_waiting_screen(screen, "Connecting to server...")
-    
-    # Connect to server
-    network = Network()
-    player_color = network.connect()
-    
-    if not player_color:
-        draw_waiting_screen(screen, "Connection failed! Press any key to return.")
+    def wait_for_ack(message, close_connection=False):
+        draw_waiting_screen(screen, message)
         waiting = True
         while waiting:
             for event in pg.event.get():
                 if event.type == pg.QUIT:
                     pg.quit()
                     exit()
-                elif event.type == pg.KEYDOWN:
+                elif event.type in (pg.KEYDOWN, pg.MOUSEBUTTONDOWN):
                     waiting = False
+            clock.tick(MAX_FPS)
+        if close_connection and network is not None:
+            network.close()
+
+    draw_waiting_screen(screen, "Connecting to server...")
+    network = None
+
+    try:
+        network = Network()
+        player_color = network.connect()
+    except NetworkError as exc:
+        wait_for_ack(f"Connection failed: {exc}\nPress any key to return.")
         return
     
     draw_waiting_screen(screen, f"You are {player_color.upper()}! Waiting for opponent...")
     
     # Get initial game state
-    gs = network.send("get")
+    try:
+        gs = network.send("get")
+    except NetworkError as exc:
+        wait_for_ack(f"Failed to get game state: {exc}\nPress any key to return.", close_connection=True)
+        return
     if not gs:
-        draw_waiting_screen(screen, "Failed to get game state! Press any key to return.")
-        waiting = True
-        while waiting:
-            for event in pg.event.get():
-                if event.type == pg.QUIT:
-                    pg.quit()
-                    exit()
-                elif event.type == pg.KEYDOWN:
-                    waiting = False
-        network.close()
+        wait_for_ack("Failed to get game state! Press any key to return.", close_connection=True)
         return
     
     # Determine if this player is white or black
@@ -309,7 +310,8 @@ def play_online_game(screen, clock):
         for e in pg.event.get():
             if e.type == pg.QUIT:
                 running = False
-                network.close()
+                if network is not None:
+                    network.close()
             elif e.type == pg.MOUSEBUTTONDOWN:
                 if not game_over and my_turn and game_started:
                     location = pg.mouse.get_pos()
@@ -338,7 +340,11 @@ def play_online_game(screen, clock):
                                 move_made = True
                                 animate = True
                                 # Send updated game state to server
-                                gs = network.send(gs)
+                                try:
+                                    gs = network.send(gs)
+                                except NetworkError as exc:
+                                    wait_for_ack(f"Disconnected: {exc}\nPress any key to return.", close_connection=True)
+                                    return
                                 square_selected = ()
                                 player_clicks = []
                         if not move_made:
@@ -346,11 +352,16 @@ def play_online_game(screen, clock):
             elif e.type == pg.KEYDOWN:
                 if e.key == pg.K_ESCAPE:
                     running = False
-                    network.close()
+                    if network is not None:
+                        network.close()
         
         # Get updated game state from server if not our turn
         if not my_turn and not game_over:
-            new_gs = network.send("get")
+            try:
+                new_gs = network.send("get")
+            except NetworkError as exc:
+                wait_for_ack(f"Connection lost: {exc}\nPress any key to return.", close_connection=True)
+                return
             if new_gs and len(new_gs.move_log) > len(gs.move_log):
                 gs = new_gs
                 move_made = True
@@ -389,13 +400,15 @@ def play_online_game(screen, clock):
                 
                 action = show_game_over_menu(screen, clock, gs, valid_moves, square_selected, result_message)
                 if action == "rematch" or action == "quit":
-                    network.close()
+                    if network is not None:
+                        network.close()
                     return
         
         clock.tick(MAX_FPS)
         pg.display.flip()
     
-    network.close()
+    if network is not None:
+        network.close()
 
 def main():
     pg.init()
