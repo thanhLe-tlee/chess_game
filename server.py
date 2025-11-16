@@ -1,5 +1,3 @@
-"""Simple TCP relay server for multiplayer chess."""
-
 from __future__ import annotations
 
 import os
@@ -45,6 +43,7 @@ class GameSession:
         self.state = chessEngine.GameState()
         self.lock = threading.Lock()
         self.players: Dict[str, socket.socket] = {}
+        self.rematch_requests: Dict[str, bool] = {}
 
     def assign_slot(self, conn: socket.socket) -> Optional[str]:
         with self.lock:
@@ -69,6 +68,40 @@ class GameSession:
     def update_state(self, state):
         with self.lock:
             self.state = state
+    
+    def request_rematch(self, color: str) -> str:
+        """Register a rematch request and return status"""
+        with self.lock:
+            self.rematch_requests[color] = True
+            if len(self.rematch_requests) == 2 and all(self.rematch_requests.values()):
+                # Both players want rematch
+                self.rematch_requests.clear()
+                self.state = chessEngine.GameState()
+                return "rematch_accepted"
+            else:
+                return "waiting_for_opponent"
+    
+    def cancel_rematch(self, color: str) -> None:
+        """Cancel rematch request"""
+        with self.lock:
+            self.rematch_requests.pop(color, None)
+    
+    def check_rematch_status(self) -> str:
+        """Check if rematch has been accepted by both players"""
+        with self.lock:
+            if len(self.rematch_requests) == 2 and all(self.rematch_requests.values()):
+                self.rematch_requests.clear()
+                self.state = chessEngine.GameState()
+                return "rematch_accepted"
+            elif len(self.rematch_requests) == 1:
+                return "waiting_for_opponent"
+            else:
+                return "no_rematch"
+    
+    def both_players_ready(self) -> bool:
+        """Check if both players are connected"""
+        with self.lock:
+            return len(self.players) == 2
 
 
 session = GameSession()
@@ -82,6 +115,18 @@ def handle_client(conn: socket.socket, addr, color: str) -> None:
             data = recv_payload(conn)
             if data == "get":
                 send_payload(conn, session.get_state())
+            elif data == "request_rematch":
+                status = session.request_rematch(color)
+                send_payload(conn, status)
+            elif data == "check_rematch":
+                status = session.check_rematch_status()
+                send_payload(conn, status)
+            elif data == "cancel_rematch":
+                session.cancel_rematch(color)
+                send_payload(conn, "rematch_cancelled")
+            elif data == "check_both_ready":
+                ready = session.both_players_ready()
+                send_payload(conn, ready)
             elif isinstance(data, chessEngine.GameState):
                 session.update_state(data)
                 send_payload(conn, session.get_state())

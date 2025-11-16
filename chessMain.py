@@ -356,6 +356,51 @@ def draw_waiting_screen(screen, message):
         screen.blit(text, text_rect)
     pg.display.flip()
 
+def wait_for_rematch(screen, clock, network, timeout=5000):
+    """Wait for opponent to accept rematch with timeout"""
+    start_time = pg.time.get_ticks()
+    
+    while True:
+        current_time = pg.time.get_ticks()
+        elapsed = current_time - start_time
+        remaining = max(0, (timeout - elapsed) // 1000)
+        
+        if elapsed >= timeout:
+            # Timeout - cancel rematch
+            try:
+                network.send("cancel_rematch")
+            except:
+                pass
+            return False
+        
+        # Check for user cancellation
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                try:
+                    network.send("cancel_rematch")
+                except:
+                    pass
+                return False
+            elif event.type == pg.KEYDOWN and event.key == pg.K_ESCAPE:
+                try:
+                    network.send("cancel_rematch")
+                except:
+                    pass
+                return False
+        
+        # Check rematch status
+        try:
+            status = network.send("check_rematch")
+            if status == "rematch_accepted":
+                return True
+            elif status == "no_rematch":
+                return False
+        except NetworkError:
+            return False
+        
+        draw_waiting_screen(screen, f"Waiting for opponent to accept rematch...\n{remaining}s remaining\nPress ESC to cancel")
+        clock.tick(10)  # Check 10 times per second
+
 def prompt_promotion_choice(screen, clock, piece_color, pawn_row, pawn_col, is_white_player=True):
     """Display compact UI next to the promoted pawn to select piece."""
     options = [('Q', 'Queen'), ('R', 'Rook'), ('B', 'Bishop'), ('N', 'Knight')]
@@ -459,6 +504,30 @@ def play_online_game(screen, clock):
     
     draw_waiting_screen(screen, f"You are {player_color.upper()}! Waiting for opponent...")
     
+    # Wait for both players to be ready
+    both_ready = False
+    while not both_ready:
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                if network is not None:
+                    network.close()
+                return
+        
+        try:
+            both_ready = network.send("check_both_ready")
+        except NetworkError as exc:
+            wait_for_ack(f"Connection lost: {exc}\nPress any key to return.", close_connection=True)
+            return
+        
+        if not both_ready:
+            draw_waiting_screen(screen, f"You are {player_color.upper()}! Waiting for opponent...")
+            clock.tick(10)
+    
+    # Both players connected - show countdown
+    for countdown in range(3, 0, -1):
+        draw_waiting_screen(screen, f"Game starting in {countdown}...")
+        pg.time.wait(350)
+    
     try:
         gs = network.send("get")
     except NetworkError as exc:
@@ -474,8 +543,10 @@ def play_online_game(screen, clock):
     animate = False
     move_made = False
     
+    # Don't start game/audio/timer until both players ready and countdown done
     game_started = False
     start_sound_channel = None
+    # Play game start sound after countdown
     try:
         start_sound_channel = SOUNDS['game_start'].play()
     except:
@@ -604,8 +675,53 @@ def play_online_game(screen, clock):
                 else:
                     result_message = "Time Out - White Wins!"
                 
-                action = show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, result_message, is_white_player, white_time, black_time)
-                if action == "rematch" or action == "quit":
+                action = show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, result_message, is_white_player, white_time, black_time, network)
+                if action == "rematch":
+                    # Reset game state for rematch
+                    try:
+                        # Wait for both players to be ready after rematch
+                        both_ready = False
+                        while not both_ready:
+                            for event in pg.event.get():
+                                if event.type == pg.QUIT:
+                                    if network is not None:
+                                        network.close()
+                                    return
+                            
+                            both_ready = network.send("check_both_ready")
+                            if not both_ready:
+                                draw_waiting_screen(screen, "Waiting for opponent to be ready...")
+                                clock.tick(10)
+                        
+                        # Show countdown
+                        for countdown in range(3, 0, -1):
+                            draw_waiting_screen(screen, f"Game starting in {countdown}...")
+                            pg.time.wait(350)
+                        
+                        gs = network.send("get")
+                        if not gs:
+                            if network is not None:
+                                network.close()
+                            return
+                        valid_moves = gs.get_valid_moves()
+                        square_selected = ()
+                        player_clicks = []
+                        animate = False
+                        move_made = False
+                        game_over = False
+                        white_time = INITIAL_TIME
+                        black_time = INITIAL_TIME
+                        last_time = pg.time.get_ticks()
+                        game_started = False
+                        try:
+                            start_sound_channel = SOUNDS['game_start'].play()
+                        except:
+                            game_started = True
+                    except NetworkError:
+                        if network is not None:
+                            network.close()
+                        return
+                elif action == "quit":
                     if network is not None:
                         network.close()
                     return
@@ -628,8 +744,53 @@ def play_online_game(screen, clock):
                 else:
                     result_message = "Draw by Repetition!"
                 
-                action = show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, result_message, is_white_player, white_time, black_time)
-                if action == "rematch" or action == "quit":
+                action = show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, result_message, is_white_player, white_time, black_time, network)
+                if action == "rematch":
+                    # Reset game state for rematch
+                    try:
+                        # Wait for both players to be ready after rematch
+                        both_ready = False
+                        while not both_ready:
+                            for event in pg.event.get():
+                                if event.type == pg.QUIT:
+                                    if network is not None:
+                                        network.close()
+                                    return
+                            
+                            both_ready = network.send("check_both_ready")
+                            if not both_ready:
+                                draw_waiting_screen(screen, "Waiting for opponent to be ready...")
+                                clock.tick(10)
+                        
+                        # Show countdown
+                        for countdown in range(3, 0, -1):
+                            draw_waiting_screen(screen, f"Game starting in {countdown}...")
+                            pg.time.wait(350)
+                        
+                        gs = network.send("get")
+                        if not gs:
+                            if network is not None:
+                                network.close()
+                            return
+                        valid_moves = gs.get_valid_moves()
+                        square_selected = ()
+                        player_clicks = []
+                        animate = False
+                        move_made = False
+                        game_over = False
+                        white_time = INITIAL_TIME
+                        black_time = INITIAL_TIME
+                        last_time = pg.time.get_ticks()
+                        game_started = False
+                        try:
+                            start_sound_channel = SOUNDS['game_start'].play()
+                        except:
+                            game_started = True
+                    except NetworkError:
+                        if network is not None:
+                            network.close()
+                        return
+                elif action == "quit":
                     if network is not None:
                         network.close()
                     return
@@ -1148,7 +1309,7 @@ def show_game_over_menu(screen, clock, gs, valid_moves, square_selected, message
         pg.display.flip()
         clock.tick(MAX_FPS)
 
-def show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, message, is_white_player, white_time, black_time):
+def show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, message, is_white_player, white_time, black_time, network):
     """Display game over menu for online mode with proper board orientation"""
     button_width = int(350 * (WIDTH / 960))
     button_height = int(60 * (HEIGHT / 960))
@@ -1174,7 +1335,20 @@ def show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, 
                 for i, button in enumerate(buttons):
                     if button.is_clicked(mouse_pos):
                         if i == 0:
-                            return "rematch"
+                            # Request rematch
+                            try:
+                                response = network.send("request_rematch")
+                                if response == "rematch_accepted":
+                                    # Both players immediately agreed
+                                    return "rematch"
+                                elif response == "waiting_for_opponent":
+                                    # Wait for opponent
+                                    if wait_for_rematch(screen, clock, network):
+                                        return "rematch"
+                                    else:
+                                        return "quit"
+                            except NetworkError:
+                                return "quit"
                         elif i == 1:
                             return "quit"
         
