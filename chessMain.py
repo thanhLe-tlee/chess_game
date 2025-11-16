@@ -1,9 +1,19 @@
 import pygame as pg
 import chess_engine as chessEngine
 import smartMoveFinder as AI_move
-from network import Network
+# from network import Network
 
-WIDTH = HEIGHT = 960
+# Initialize pygame to get display info
+pg.init()
+display_info = pg.display.Info()
+SCREEN_WIDTH = display_info.current_w
+SCREEN_HEIGHT = display_info.current_h
+
+# Calculate appropriate size (80% of screen height to leave space for taskbar/title bar)
+# Keep it square for the chess board
+MAX_SIZE = int(min(SCREEN_WIDTH * 0.8, SCREEN_HEIGHT * 0.8))
+WIDTH = HEIGHT = MAX_SIZE
+
 BOARD_WIDTH = int (WIDTH * 0.75)
 MOVE_LOG_WIDTH = WIDTH - BOARD_WIDTH
 DIMENSION = 8 # dimensions of a chess board are 8x8
@@ -65,7 +75,9 @@ class Button:
         pg.draw.rect(screen, color, self.rect, border_radius=10)
         pg.draw.rect(screen, (50, 50, 50), self.rect, 3, border_radius=10)
         
-        font = pg.font.SysFont("Arial", 32, True)
+        # Scale font size based on screen size
+        font_size = int(32 * (HEIGHT / 960))
+        font = pg.font.SysFont("Arial", font_size, True)
         text_surface = font.render(self.text, True, self.text_color)
         text_rect = text_surface.get_rect(center=self.rect.center)
         screen.blit(text_surface, text_rect)
@@ -80,25 +92,28 @@ def draw_menu(screen):
     """Draw the main menu screen"""
     screen.fill(pg.Color(40, 40, 40))
     
-    # Draw title
-    title_font = pg.font.SysFont("Arial", 80, True)
+    # Draw title - scale font size
+    title_font_size = int(80 * (HEIGHT / 960))
+    title_font = pg.font.SysFont("Arial", title_font_size, True)
     title_text = title_font.render("CHESS GAME", True, pg.Color(255, 255, 255))
     title_rect = title_text.get_rect(center=(WIDTH // 2, HEIGHT // 4))
     screen.blit(title_text, title_rect)
     
-    # Draw subtitle
-    subtitle_font = pg.font.SysFont("Arial", 30)
+    # Draw subtitle - scale font size
+    subtitle_font_size = int(30 * (HEIGHT / 960))
+    subtitle_font = pg.font.SysFont("Arial", subtitle_font_size)
     subtitle_text = subtitle_font.render("Select Game Mode", True, pg.Color(200, 200, 200))
-    subtitle_rect = subtitle_text.get_rect(center=(WIDTH // 2, HEIGHT // 4 + 80))
+    subtitle_rect = subtitle_text.get_rect(center=(WIDTH // 2, HEIGHT // 4 + int(80 * (HEIGHT / 960))))
     screen.blit(subtitle_text, subtitle_rect)
 
 def show_menu(screen, clock):
     """Display menu and return selected game mode"""
-    button_width = 400
-    button_height = 70
+    # Scale button dimensions based on screen size
+    button_width = int(400 * (WIDTH / 960))
+    button_height = int(70 * (HEIGHT / 960))
     button_x = (WIDTH - button_width) // 2
-    spacing = 85
-    start_y = HEIGHT // 2 - 80
+    spacing = int(85 * (HEIGHT / 960))
+    start_y = HEIGHT // 2 - int(80 * (HEIGHT / 960))
     
     buttons = [
         Button("PLAY ONLINE (Network)", (button_x, start_y), (button_width, button_height), 
@@ -144,11 +159,12 @@ def show_menu(screen, clock):
 
 def show_pause_menu(screen, clock, gs, valid_moves, square_selected):
     """Display pause menu overlay and return action"""
-    button_width = 350
-    button_height = 60
+    # Scale button dimensions based on screen size
+    button_width = int(350 * (WIDTH / 960))
+    button_height = int(60 * (HEIGHT / 960))
     button_x = (WIDTH - button_width) // 2
-    spacing = 80
-    start_y = HEIGHT // 2 - 80
+    spacing = int(80 * (HEIGHT / 960))
+    start_y = HEIGHT // 2 - int(80 * (HEIGHT / 960))
     
     buttons = [
         Button("RESUME", (button_x, start_y), (button_width, button_height), 
@@ -192,16 +208,18 @@ def show_pause_menu(screen, clock, gs, valid_moves, square_selected):
         overlay.fill((0, 0, 0))
         screen.blit(overlay, (0, 0))
         
-        # Draw pause title
-        title_font = pg.font.SysFont("Arial", 60, True)
+        # Draw pause title - scale font size
+        title_font_size = int(60 * (HEIGHT / 960))
+        title_font = pg.font.SysFont("Arial", title_font_size, True)
         title_text = title_font.render("PAUSED", True, pg.Color(255, 255, 255))
         title_rect = title_text.get_rect(center=(WIDTH // 2, HEIGHT // 4))
         screen.blit(title_text, title_rect)
         
-        # Draw hint
-        hint_font = pg.font.SysFont("Arial", 20)
+        # Draw hint - scale font size
+        hint_font_size = int(20 * (HEIGHT / 960))
+        hint_font = pg.font.SysFont("Arial", hint_font_size)
         hint_text = hint_font.render("Press P to resume", True, pg.Color(200, 200, 200))
-        hint_rect = hint_text.get_rect(center=(WIDTH // 2, HEIGHT // 4 + 60))
+        hint_rect = hint_text.get_rect(center=(WIDTH // 2, HEIGHT // 4 + int(60 * (HEIGHT / 960))))
         screen.blit(hint_text, hint_rect)
         
         # Draw buttons
@@ -214,7 +232,9 @@ def show_pause_menu(screen, clock, gs, valid_moves, square_selected):
 def draw_waiting_screen(screen, message):
     """Display waiting screen for network connection"""
     screen.fill(pg.Color(40, 40, 40))
-    font = pg.font.SysFont("Arial", 40, True)
+    # Scale font size
+    font_size = int(40 * (HEIGHT / 960))
+    font = pg.font.SysFont("Arial", font_size, True)
     text = font.render(message, True, pg.Color(255, 255, 255))
     text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
     screen.blit(text, text_rect)
@@ -742,11 +762,12 @@ def main():
 
 def show_game_over_menu(screen, clock, gs, valid_moves, square_selected, message):
     """Display game over menu with result and options"""
-    button_width = 350
-    button_height = 60
+    # Scale button dimensions based on screen size
+    button_width = int(350 * (WIDTH / 960))
+    button_height = int(60 * (HEIGHT / 960))
     button_x = (WIDTH - button_width) // 2
-    spacing = 80
-    start_y = HEIGHT // 2 + 20
+    spacing = int(80 * (HEIGHT / 960))
+    start_y = HEIGHT // 2 + int(20 * (HEIGHT / 960))
     
     buttons = [
         Button("REMATCH", (button_x, start_y), (button_width, button_height), 
@@ -783,16 +804,18 @@ def show_game_over_menu(screen, clock, gs, valid_moves, square_selected, message
         overlay.fill((0, 0, 0))
         screen.blit(overlay, (0, 0))
         
-        # Draw game result message
-        title_font = pg.font.SysFont("Arial", 60, True)
+        # Draw game result message - scale font size
+        title_font_size = int(60 * (HEIGHT / 960))
+        title_font = pg.font.SysFont("Arial", title_font_size, True)
         title_text = title_font.render(message, True, pg.Color(255, 215, 0))  # Gold color
         title_rect = title_text.get_rect(center=(WIDTH // 2, HEIGHT // 3))
         screen.blit(title_text, title_rect)
         
-        # Draw subtitle
-        subtitle_font = pg.font.SysFont("Arial", 28)
+        # Draw subtitle - scale font size
+        subtitle_font_size = int(28 * (HEIGHT / 960))
+        subtitle_font = pg.font.SysFont("Arial", subtitle_font_size)
         subtitle_text = subtitle_font.render("Game Over", True, pg.Color(200, 200, 200))
-        subtitle_rect = subtitle_text.get_rect(center=(WIDTH // 2, HEIGHT // 3 + 70))
+        subtitle_rect = subtitle_text.get_rect(center=(WIDTH // 2, HEIGHT // 3 + int(70 * (HEIGHT / 960))))
         screen.blit(subtitle_text, subtitle_rect)
         
         # Draw buttons
@@ -929,7 +952,9 @@ def animation_move(move, screen, board, clock, is_white_player=True):
         clock.tick(60)
 
 def draw_text(screen, text):
-    font = pg.font.SysFont("Helvitca", 50, True, False)
+    # Scale font size
+    font_size = int(50 * (HEIGHT / 960))
+    font = pg.font.SysFont("Helvitca", font_size, True, False)
     text_object = font.render(text, 0, pg.Color('Grey'))
     text_location = pg.Rect(0, 0, WIDTH, HEIGHT).move(WIDTH/2 - text_object.get_width()/2, HEIGHT/2 - text_object.get_height()/2)
     screen.blit(text_object, text_location)
