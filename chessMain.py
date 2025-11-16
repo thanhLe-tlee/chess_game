@@ -13,7 +13,9 @@ DIMENSION = 8
 MAX_SIZE = int(min(SCREEN_WIDTH * 0.8, SCREEN_HEIGHT * 0.8))
 SQ_SIZE = max(1, MAX_SIZE // DIMENSION)
 BOARD_PIXEL_SIZE = SQ_SIZE * DIMENSION
-WIDTH = HEIGHT = BOARD_PIXEL_SIZE
+TIMER_PANEL_WIDTH = int(SQ_SIZE * 3)
+WIDTH = BOARD_PIXEL_SIZE + TIMER_PANEL_WIDTH
+HEIGHT = BOARD_PIXEL_SIZE
 
 BOARD_WIDTH = int(WIDTH * 0.75)
 MOVE_LOG_WIDTH = WIDTH - BOARD_WIDTH
@@ -21,6 +23,17 @@ MAX_FPS = 60
 IMAGES = {}
 SOUNDS = {}
 colors = [pg.Color("white"), pg.Color("lightblue")]
+
+INITIAL_TIME = 600000
+
+def format_time(milliseconds):
+    """Format milliseconds to MM:SS"""
+    if milliseconds < 0:
+        milliseconds = 0
+    total_seconds = milliseconds // 1000
+    minutes = total_seconds // 60
+    seconds = total_seconds % 60
+    return f"{minutes:02d}:{seconds:02d}"
 
 def load_images():
     pieces = ['wP', 'wR', 'wN', 'wB', 'wQ', 'wK', 'bP', 'bR', 'bN', 'bB', 'bQ', 'bK']
@@ -150,7 +163,7 @@ def show_menu(screen, clock):
         pg.display.flip()
         clock.tick(MAX_FPS)
 
-def show_pause_menu(screen, clock, gs, valid_moves, square_selected):
+def show_pause_menu(screen, clock, gs, valid_moves, square_selected, white_time, black_time, show_timers=False):
     """Display pause menu overlay and return action"""
     button_width = int(350 * (WIDTH / 960))
     button_height = int(60 * (HEIGHT / 960))
@@ -358,7 +371,7 @@ def prompt_promotion_choice(screen, clock, piece_color, pawn_row, pawn_col, is_w
         screen_col = 7 - pawn_col
         screen_row = 7 - pawn_row
     
-    pawn_x = screen_col * SQ_SIZE
+    pawn_x = TIMER_PANEL_WIDTH + screen_col * SQ_SIZE
     pawn_y = screen_row * SQ_SIZE
     
     panel_width = button_size * 2 + padding * 3
@@ -473,11 +486,32 @@ def play_online_game(screen, clock):
     player_clicks = []
     game_over = False
     
+    white_time = INITIAL_TIME
+    black_time = INITIAL_TIME
+    last_time = pg.time.get_ticks()
+    
     while running:
         # Check if game start sound has finished
         if not game_started and start_sound_channel is not None:
             if not start_sound_channel.get_busy():
                 game_started = True
+        
+        if game_started and not game_over:
+            current_time = pg.time.get_ticks()
+            time_elapsed = current_time - last_time
+            last_time = current_time
+            
+            if gs.white_to_move:
+                white_time -= time_elapsed
+            else:
+                black_time -= time_elapsed
+            
+            if white_time <= 0:
+                white_time = 0
+                game_over = True
+            elif black_time <= 0:
+                black_time = 0
+                game_over = True
         
         my_turn = (gs.white_to_move and is_white_player) or (not gs.white_to_move and not is_white_player)
         
@@ -490,60 +524,48 @@ def play_online_game(screen, clock):
                 if not game_over and my_turn and game_started:
                     location = pg.mouse.get_pos()
                     
-                    if is_white_player:
-                        col = location[0] // SQ_SIZE
-                        rol = location[1] // SQ_SIZE
-                    else:
-                        col = 7 - (location[0] // SQ_SIZE)
-                        rol = 7 - (location[1] // SQ_SIZE)
-                    
-                    if square_selected == (rol, col):
-                        square_selected = ()
-                        player_clicks = []
-                    else:
-                        square_selected = (rol, col)
-                        player_clicks.append(square_selected)
-                    
-                    if len(player_clicks) == 2:
-                        move = chessEngine.Move(player_clicks[0], player_clicks[1], gs.board)
-                        print(move.get_chess_notation())
-                        for i in range(len(valid_moves)):
-                            if move == valid_moves[i]:
-                                if valid_moves[i].is_pawn_promotion:
-                                    choice = prompt_promotion_choice(screen, clock, valid_moves[i].piece_moved[0], 
-                                                                    valid_moves[i].end_row, valid_moves[i].end_col, is_white_player)
-                                    valid_moves[i].promotion_choice = choice
-                                gs.make_move(valid_moves[i])
-                                move_made = True
-                                animate = True
-                                try:
-                                    gs = network.send(gs)
-                                except NetworkError as exc:
-                                    wait_for_ack(f"Disconnected: {exc}\nPress any key to return.", close_connection=True)
-                                    return
-                                square_selected = ()
-                                player_clicks = []
-                        if not move_made:
-                            player_clicks = [square_selected]
+                    if location[0] >= TIMER_PANEL_WIDTH:
+                        if is_white_player:
+                            col = (location[0] - TIMER_PANEL_WIDTH) // SQ_SIZE
+                            rol = location[1] // SQ_SIZE
+                        else:
+                            col = 7 - ((location[0] - TIMER_PANEL_WIDTH) // SQ_SIZE)
+                            rol = 7 - (location[1] // SQ_SIZE)
+                        
+                        if square_selected == (rol, col):
+                            square_selected = ()
+                            player_clicks = []
+                        else:
+                            square_selected = (rol, col)
+                            player_clicks.append(square_selected)
+                        
+                        if len(player_clicks) == 2:
+                            move = chessEngine.Move(player_clicks[0], player_clicks[1], gs.board)
+                            print(move.get_chess_notation())
+                            for i in range(len(valid_moves)):
+                                if move == valid_moves[i]:
+                                    if valid_moves[i].is_pawn_promotion:
+                                        choice = prompt_promotion_choice(screen, clock, valid_moves[i].piece_moved[0], 
+                                                                        valid_moves[i].end_row, valid_moves[i].end_col, is_white_player)
+                                        valid_moves[i].promotion_choice = choice
+                                    gs.make_move(valid_moves[i])
+                                    move_made = True
+                                    animate = True
+                                    last_time = pg.time.get_ticks()
+                                    try:
+                                        gs = network.send(gs)
+                                    except NetworkError as exc:
+                                        wait_for_ack(f"Disconnected: {exc}\nPress any key to return.", close_connection=True)
+                                        return
+                                    square_selected = ()
+                                    player_clicks = []
+                            if not move_made:
+                                player_clicks = [square_selected]
             elif e.type == pg.KEYDOWN:
                 if e.key == pg.K_ESCAPE:
                     running = False
                     if network is not None:
                         network.close()
-                elif e.key == pg.K_p and not game_over:
-                    pause_action = show_pause_menu_online(screen, clock, gs, valid_moves, square_selected, is_white_player)
-                    if pause_action == "quit":
-                        if network is not None:
-                            network.close()
-                        return
-                elif e.key == pg.K_p and not game_over and game_started:
-                    action = show_pause_menu_online(screen, clock, gs, valid_moves, square_selected, is_white_player)
-                    if action == "quit":
-                        if network is not None:
-                            network.close()
-                        return
-                    else:
-                        continue
         
         if not my_turn and not game_over:
             try:
@@ -555,10 +577,11 @@ def play_online_game(screen, clock):
                 gs = new_gs
                 move_made = True
                 animate = True
+                last_time = pg.time.get_ticks()
         
         if move_made:
             if animate and gs.move_log:
-                animation_move(gs.move_log[-1], screen, gs.board, clock, is_white_player)
+                animation_move(gs.move_log[-1], screen, gs.board, clock, is_white_player, white_time, black_time, gs.white_to_move, True)
             valid_moves = gs.get_valid_moves()
             if gs.move_log:
                 is_check = gs.is_in_check
@@ -566,7 +589,26 @@ def play_online_game(screen, clock):
             move_made = False
             animate = False
         
-        draw_game_state_online(screen, gs, valid_moves, square_selected, is_white_player)
+        draw_game_state_online(screen, gs, valid_moves, square_selected, is_white_player, white_time, black_time)
+        
+        if white_time <= 0 or black_time <= 0:
+            if not game_over:
+                game_over = True
+                try:
+                    SOUNDS['game_end'].play()
+                except:
+                    pass
+                
+                if white_time <= 0:
+                    result_message = "Time Out - Black Wins!"
+                else:
+                    result_message = "Time Out - White Wins!"
+                
+                action = show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, result_message, is_white_player, white_time, black_time)
+                if action == "rematch" or action == "quit":
+                    if network is not None:
+                        network.close()
+                    return
         
         if gs.check_mate or gs.stale_mate or gs.draw_by_repetition:
             if not game_over:
@@ -586,7 +628,7 @@ def play_online_game(screen, clock):
                 else:
                     result_message = "Draw by Repetition!"
                 
-                action = show_game_over_menu(screen, clock, gs, valid_moves, square_selected, result_message)
+                action = show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, result_message, is_white_player, white_time, black_time)
                 if action == "rematch" or action == "quit":
                     if network is not None:
                         network.close()
@@ -605,6 +647,53 @@ def _player_flags_for_mode(game_mode):
         return True, False
     return False, False
 
+def show_difficulty_menu(screen, clock):
+    """Display difficulty selection menu and return chosen difficulty"""
+    button_width = int(350 * (WIDTH / 960))
+    button_height = int(60 * (HEIGHT / 960))
+    button_x = (WIDTH - button_width) // 2
+    spacing = int(80 * (HEIGHT / 960))
+    start_y = HEIGHT // 2 - int(40 * (HEIGHT / 960))
+    
+    buttons = [
+        Button("EASY", (button_x, start_y), (button_width, button_height), 
+               (34, 139, 34), (255, 255, 255)),
+        Button("HARD", (button_x, start_y + spacing), (button_width, button_height), 
+               (178, 34, 34), (255, 255, 255))
+    ]
+    
+    while True:
+        mouse_pos = pg.mouse.get_pos()
+        
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                pg.quit()
+                exit()
+            elif event.type == pg.MOUSEBUTTONDOWN:
+                for i, button in enumerate(buttons):
+                    if button.is_clicked(mouse_pos):
+                        if i == 0:
+                            return "easy"
+                        elif i == 1:
+                            return "hard"
+        
+        for button in buttons:
+            button.check_hover(mouse_pos)
+        
+        screen.fill(pg.Color(40, 40, 40))
+        
+        title_font_size = int(60 * (HEIGHT / 960))
+        title_font = pg.font.SysFont("Arial", title_font_size, True)
+        title_text = title_font.render("SELECT DIFFICULTY", True, pg.Color(255, 255, 255))
+        title_rect = title_text.get_rect(center=(WIDTH // 2, HEIGHT // 4))
+        screen.blit(title_text, title_rect)
+        
+        for button in buttons:
+            button.draw(screen)
+        
+        pg.display.flip()
+        clock.tick(MAX_FPS)
+
 def select_offline_mode(screen, clock):
     """Keep showing the menu until a non-network mode is selected."""
     while True:
@@ -612,8 +701,13 @@ def select_offline_mode(screen, clock):
         if game_mode == "network":
             play_online_game(screen, clock)
             continue
+        
+        difficulty = None
+        if game_mode == "vs_computer":
+            difficulty = show_difficulty_menu(screen, clock)
+        
         player_one, player_two = _player_flags_for_mode(game_mode)
-        return game_mode, player_one, player_two
+        return game_mode, player_one, player_two, difficulty
 
 def main():
     pg.init()
@@ -622,9 +716,9 @@ def main():
     clock = pg.time.Clock()
     load_images()
     load_sounds()
-    game_mode, player_one, player_two = select_offline_mode(screen, clock)
+    game_mode, player_one, player_two, difficulty = select_offline_mode(screen, clock)
     
-    screen.fill(pg.Color("white"))
+    screen.fill(pg.Color("black"))
     gs = chessEngine.GameState()
     valid_moves = gs.get_valid_moves()
     animate = False
@@ -641,11 +735,33 @@ def main():
     square_selected = ()
     player_clicks = []
     game_over = False
+    
+    white_time = INITIAL_TIME
+    black_time = INITIAL_TIME
+    last_time = pg.time.get_ticks()
+    
     while running:
         # Check if game start sound has finished
         if not game_started and start_sound_channel is not None:
             if not start_sound_channel.get_busy():
                 game_started = True
+        
+        if game_started and not game_over and player_one and player_two:
+            current_time = pg.time.get_ticks()
+            time_elapsed = current_time - last_time
+            last_time = current_time
+            
+            if gs.white_to_move:
+                white_time -= time_elapsed
+            else:
+                black_time -= time_elapsed
+            
+            if white_time <= 0:
+                white_time = 0
+                game_over = True
+            elif black_time <= 0:
+                black_time = 0
+                game_over = True
         
         human_turn = (gs.white_to_move and player_one) or (not gs.white_to_move and player_two)
         for e in pg.event.get():
@@ -654,38 +770,41 @@ def main():
             elif e.type == pg.MOUSEBUTTONDOWN:
                 if not game_over and human_turn and game_started:
                     location = pg.mouse.get_pos()
-                    col = location[0] // SQ_SIZE
-                    rol = location[1] // SQ_SIZE
-                    if square_selected == (rol, col):
-                        square_selected = ()
-                        player_clicks = []
-                    else:
-                        square_selected = (rol, col)
-                        player_clicks.append(square_selected)
-                    if len(player_clicks) == 2:
-                        move = chessEngine.Move(player_clicks[0], player_clicks[1], gs.board)
-                        print(move.get_chess_notation())
-                        for i in range(len(valid_moves)):
-                            if move == valid_moves[i]:
-                                if valid_moves[i].is_pawn_promotion:
-                                    choice = prompt_promotion_choice(screen, clock, valid_moves[i].piece_moved[0], 
-                                                                    valid_moves[i].end_row, valid_moves[i].end_col)
-                                    valid_moves[i].promotion_choice = choice
-                                gs.make_move(valid_moves[i])
-                                move_made = True
-                                animate = True
-                                square_selected = ()
-                                player_clicks = []
-                        if not move_made:
-                            player_clicks = [square_selected]
+                    if location[0] >= TIMER_PANEL_WIDTH:
+                        col = (location[0] - TIMER_PANEL_WIDTH) // SQ_SIZE
+                        rol = location[1] // SQ_SIZE
+                        if square_selected == (rol, col):
+                            square_selected = ()
+                            player_clicks = []
+                        else:
+                            square_selected = (rol, col)
+                            player_clicks.append(square_selected)
+                        if len(player_clicks) == 2:
+                            move = chessEngine.Move(player_clicks[0], player_clicks[1], gs.board)
+                            print(move.get_chess_notation())
+                            for i in range(len(valid_moves)):
+                                if move == valid_moves[i]:
+                                    if valid_moves[i].is_pawn_promotion:
+                                        choice = prompt_promotion_choice(screen, clock, valid_moves[i].piece_moved[0], 
+                                                                        valid_moves[i].end_row, valid_moves[i].end_col)
+                                        valid_moves[i].promotion_choice = choice
+                                    gs.make_move(valid_moves[i])
+                                    move_made = True
+                                    animate = True
+                                    last_time = pg.time.get_ticks()
+                                    square_selected = ()
+                                    player_clicks = []
+                            if not move_made:
+                                player_clicks = [square_selected]
             elif e.type == pg.KEYDOWN:
                 if e.key == pg.K_z:
                     gs.undo_move()
                     move_made = True
                     animate = False
                 if e.key == pg.K_p:
-                    pause_action = show_pause_menu(screen, clock, gs, valid_moves, square_selected)
+                    pause_action = show_pause_menu(screen, clock, gs, valid_moves, square_selected, white_time, black_time, player_one and player_two)
                     if pause_action == "resume":
+                        last_time = pg.time.get_ticks()
                         continue
                     elif pause_action == "restart":
                         # Restart with same game mode
@@ -705,9 +824,12 @@ def main():
                         except:
                             game_started = True
                     elif pause_action == "quit":
-                        game_mode, player_one, player_two = select_offline_mode(screen, clock)
+                        game_mode, player_one, player_two, difficulty = select_offline_mode(screen, clock)
                         
                         gs = chessEngine.GameState()
+                        white_time = INITIAL_TIME
+                        black_time = INITIAL_TIME
+                        last_time = pg.time.get_ticks()
                         valid_moves = gs.get_valid_moves()
                         square_selected = ()
                         player_clicks = []
@@ -723,9 +845,12 @@ def main():
                         except:
                             game_started = True
                 if e.key == pg.K_r:
-                    game_mode, player_one, player_two = select_offline_mode(screen, clock)
+                    game_mode, player_one, player_two, difficulty = select_offline_mode(screen, clock)
                     
                     gs = chessEngine.GameState()
+                    white_time = INITIAL_TIME
+                    black_time = INITIAL_TIME
+                    last_time = pg.time.get_ticks()
                     valid_moves = gs.get_valid_moves()
                     square_selected = ()
                     player_clicks = []
@@ -742,25 +867,81 @@ def main():
                         game_started = True
 
         if not game_over and not human_turn and game_started:
-            ai_move = AI_move.find_best_move(gs, valid_moves)
+            if difficulty == "easy":
+                ai_move = AI_move.find_best_move_minmax(gs, valid_moves)
+            else:
+                ai_move = AI_move.find_best_move(gs, valid_moves)
             if ai_move is None:
                 ai_move = AI_move.find_random_smart_move(valid_moves)
             gs.make_move(ai_move)
             move_made = True
             animate = True
+            last_time = pg.time.get_ticks()
 
         if move_made:
             if animate:
-                animation_move(gs.move_log[-1], screen, gs.board, clock)
+                animation_move(gs.move_log[-1], screen, gs.board, clock, True, white_time, black_time, gs.white_to_move, player_one and player_two)
             valid_moves = gs.get_valid_moves()
             if gs.move_log:
                 is_check = gs.is_in_check
                 play_move_sound(gs.move_log[-1], is_check)
             move_made = False
 
-        draw_game_state(screen, gs, valid_moves, square_selected)
+        draw_game_state(screen, gs, valid_moves, square_selected, white_time, black_time, player_one and player_two)
 
-        if gs.check_mate:
+        if player_one and player_two and (white_time <= 0 or black_time <= 0):
+            if not game_over:
+                game_over = True
+                try:
+                    SOUNDS['game_end'].play()
+                except:
+                    pass
+                
+                if white_time <= 0:
+                    result_message = "Time Out - Black Wins!"
+                else:
+                    result_message = "Time Out - White Wins!"
+                
+                action = show_game_over_menu(screen, clock, gs, valid_moves, square_selected, result_message)
+                if action == "rematch":
+                    gs = chessEngine.GameState()
+                    valid_moves = gs.get_valid_moves()
+                    square_selected = ()
+                    player_clicks = []
+                    move_made = False
+                    animate = False
+                    game_over = False
+                    gs.check_mate = False
+                    gs.stale_mate = False
+                    white_time = INITIAL_TIME
+                    black_time = INITIAL_TIME
+                    last_time = pg.time.get_ticks()
+                    game_started = False
+                    try:
+                        start_sound_channel = SOUNDS['game_start'].play()
+                    except:
+                        game_started = True
+                elif action == "quit":
+                    game_mode, player_one, player_two, difficulty = select_offline_mode(screen, clock)
+                    
+                    gs = chessEngine.GameState()
+                    valid_moves = gs.get_valid_moves()
+                    square_selected = ()
+                    player_clicks = []
+                    move_made = False
+                    animate = False
+                    game_over = False
+                    gs.check_mate = False
+                    gs.stale_mate = False
+                    white_time = INITIAL_TIME
+                    black_time = INITIAL_TIME
+                    last_time = pg.time.get_ticks()
+                    game_started = False
+                    try:
+                        start_sound_channel = SOUNDS['game_start'].play()
+                    except:
+                        game_started = True
+        elif gs.check_mate:
             game_over = True
             try:
                 SOUNDS['game_end'].play()
@@ -782,14 +963,16 @@ def main():
                 game_over = False
                 gs.check_mate = False
                 gs.stale_mate = False
+                white_time = INITIAL_TIME
+                black_time = INITIAL_TIME
+                last_time = pg.time.get_ticks()
                 game_started = False
                 try:
                     start_sound_channel = SOUNDS['game_start'].play()
                 except:
                     game_started = True
             elif action == "quit":
-                # Return to main menu
-                game_mode, player_one, player_two = select_offline_mode(screen, clock)
+                game_mode, player_one, player_two, difficulty = select_offline_mode(screen, clock)
                 
                 gs = chessEngine.GameState()
                 valid_moves = gs.get_valid_moves()
@@ -800,6 +983,9 @@ def main():
                 game_over = False
                 gs.check_mate = False
                 gs.stale_mate = False
+                white_time = INITIAL_TIME
+                black_time = INITIAL_TIME
+                last_time = pg.time.get_ticks()
                 game_started = False
                 try:
                     start_sound_channel = SOUNDS['game_start'].play()
@@ -823,14 +1009,16 @@ def main():
                 game_over = False
                 gs.check_mate = False
                 gs.stale_mate = False
+                white_time = INITIAL_TIME
+                black_time = INITIAL_TIME
+                last_time = pg.time.get_ticks()
                 game_started = False
                 try:
                     start_sound_channel = SOUNDS['game_start'].play()
                 except:
                     game_started = True
             elif action == "quit":
-                # Return to main menu
-                game_mode, player_one, player_two = select_offline_mode(screen, clock)
+                game_mode, player_one, player_two, difficulty = select_offline_mode(screen, clock)
                 
                 gs = chessEngine.GameState()
                 valid_moves = gs.get_valid_moves()
@@ -841,6 +1029,9 @@ def main():
                 game_over = False
                 gs.check_mate = False
                 gs.stale_mate = False
+                white_time = INITIAL_TIME
+                black_time = INITIAL_TIME
+                last_time = pg.time.get_ticks()
                 game_started = False
                 try:
                     start_sound_channel = SOUNDS['game_start'].play()
@@ -864,14 +1055,16 @@ def main():
                 game_over = False
                 gs.check_mate = False
                 gs.stale_mate = False
+                white_time = INITIAL_TIME
+                black_time = INITIAL_TIME
+                last_time = pg.time.get_ticks()
                 game_started = False
                 try:
                     start_sound_channel = SOUNDS['game_start'].play()
                 except:
                     game_started = True
             elif action == "quit":
-                # Return to main menu
-                game_mode, player_one, player_two = select_offline_mode(screen, clock)
+                game_mode, player_one, player_two, difficulty = select_offline_mode(screen, clock)
                 
                 gs = chessEngine.GameState()
                 valid_moves = gs.get_valid_moves()
@@ -882,13 +1075,15 @@ def main():
                 game_over = False
                 gs.check_mate = False
                 gs.stale_mate = False
+                white_time = INITIAL_TIME
+                black_time = INITIAL_TIME
+                last_time = pg.time.get_ticks()
                 game_started = False
                 try:
                     start_sound_channel = SOUNDS['game_start'].play()
                 except:
                     game_started = True
 
-        clock.tick(MAX_FPS)
         pg.display.flip()
         clock.tick(MAX_FPS)
 
@@ -953,6 +1148,70 @@ def show_game_over_menu(screen, clock, gs, valid_moves, square_selected, message
         pg.display.flip()
         clock.tick(MAX_FPS)
 
+def show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, message, is_white_player, white_time, black_time):
+    """Display game over menu for online mode with proper board orientation"""
+    button_width = int(350 * (WIDTH / 960))
+    button_height = int(60 * (HEIGHT / 960))
+    button_x = (WIDTH - button_width) // 2
+    spacing = int(80 * (HEIGHT / 960))
+    start_y = HEIGHT // 2 + int(20 * (HEIGHT / 960))
+    
+    buttons = [
+        Button("REMATCH", (button_x, start_y), (button_width, button_height), 
+               (34, 139, 34), (255, 255, 255)),
+        Button("QUIT TO MENU", (button_x, start_y + spacing), (button_width, button_height), 
+               (178, 34, 34), (255, 255, 255))
+    ]
+    
+    while True:
+        mouse_pos = pg.mouse.get_pos()
+        
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                pg.quit()
+                exit()
+            elif event.type == pg.MOUSEBUTTONDOWN:
+                for i, button in enumerate(buttons):
+                    if button.is_clicked(mouse_pos):
+                        if i == 0:
+                            return "rematch"
+                        elif i == 1:
+                            return "quit"
+        
+        # Update button hover states
+        for button in buttons:
+            button.check_hover(mouse_pos)
+        
+        # Draw the game state in the background (dimmed) with proper orientation
+        draw_game_state_online(screen, gs, valid_moves, square_selected, is_white_player, white_time, black_time)
+        
+        # Draw semi-transparent overlay
+        overlay = pg.Surface((WIDTH, HEIGHT))
+        overlay.set_alpha(200)
+        overlay.fill((0, 0, 0))
+        screen.blit(overlay, (0, 0))
+        
+        title_font_size = int(60 * (HEIGHT / 960))
+        title_font = pg.font.SysFont("Arial", title_font_size, True)
+        title_text = title_font.render(message, True, pg.Color(255, 215, 0))
+        title_rect = title_text.get_rect(center=(WIDTH // 2, HEIGHT // 3))
+        screen.blit(title_text, title_rect)
+        
+        subtitle_font_size = int(28 * (HEIGHT / 960))
+        subtitle_font = pg.font.SysFont("Arial", subtitle_font_size)
+        subtitle_text = subtitle_font.render("Game Over", True, pg.Color(200, 200, 200))
+        subtitle_rect = subtitle_text.get_rect(center=(WIDTH // 2, HEIGHT // 3 + int(70 * (HEIGHT / 960))))
+        screen.blit(subtitle_text, subtitle_rect)
+        subtitle_text = subtitle_font.render("Game Over", True, pg.Color(200, 200, 200))
+        subtitle_rect = subtitle_text.get_rect(center=(WIDTH // 2, HEIGHT // 3 + int(70 * (HEIGHT / 960))))
+        screen.blit(subtitle_text, subtitle_rect)
+        
+        for button in buttons:
+            button.draw(screen)
+        
+        pg.display.flip()
+        clock.tick(MAX_FPS)
+
 def hight_light_squares(screen, gs, valid_moves, square_selected):
     if square_selected != ():
         r, c = square_selected
@@ -960,39 +1219,83 @@ def hight_light_squares(screen, gs, valid_moves, square_selected):
             s = pg.Surface((SQ_SIZE, SQ_SIZE))
             s.set_alpha(100)
             s.fill(pg.Color('blue'))
-            screen.blit(s, (c*SQ_SIZE, r*SQ_SIZE))
+            screen.blit(s, (TIMER_PANEL_WIDTH + c*SQ_SIZE, r*SQ_SIZE))
             s.fill(pg.Color('yellow'))
             for move in valid_moves:
                 if move.start_row == r and move.start_col == c:
-                    screen.blit(s, (move.end_col*SQ_SIZE, move.end_row*SQ_SIZE))
+                    screen.blit(s, (TIMER_PANEL_WIDTH + move.end_col*SQ_SIZE, move.end_row*SQ_SIZE))
 
 
-def draw_game_state(screen, gs, valid_moves, square_selected):
+def draw_timer(screen, time_ms, position, is_active):
+    """Draw a timer box in the left panel"""
+    box_width = int(SQ_SIZE * 2.5)
+    box_height = int(SQ_SIZE * 0.8)
+    margin = int(SQ_SIZE * 0.3)
+    
+    x = margin
+    
+    if position == "top":
+        y = margin
+    else:
+        y = HEIGHT - box_height - margin
+    
+    bg_color = (50, 100, 50) if is_active else (60, 60, 60)
+    border_color = (100, 200, 100) if is_active else (100, 100, 100)
+    
+    pg.draw.rect(screen, bg_color, (x, y, box_width, box_height), border_radius=8)
+    pg.draw.rect(screen, border_color, (x, y, box_width, box_height), 3, border_radius=8)
+    
+    time_str = format_time(time_ms)
+    font_size = int(SQ_SIZE * 0.45)
+    font = pg.font.SysFont("Arial", font_size, True)
+    time_surface = font.render(time_str, True, pg.Color(255, 255, 255))
+    time_rect = time_surface.get_rect(center=(x + box_width // 2, y + box_height // 2))
+    screen.blit(time_surface, time_rect)
+
+def draw_game_state(screen, gs, valid_moves, square_selected, white_time=None, black_time=None, show_timers=False):
     draw_board(screen)
     hight_light_squares(screen, gs, valid_moves, square_selected)
     draw_pieces(screen, gs.board)
+    
+    if show_timers and white_time is not None and black_time is not None:
+        draw_timer(screen, black_time, "top", not gs.white_to_move)
+        draw_timer(screen, white_time, "bottom", gs.white_to_move)
 
-def draw_game_state_online(screen, gs, valid_moves, square_selected, is_white_player):
+def draw_game_state_online(screen, gs, valid_moves, square_selected, is_white_player, white_time=None, black_time=None, show_timers=True):
     """Draw game state with board flipped for black player"""
     draw_board_online(screen, is_white_player)
     hight_light_squares_online(screen, gs, valid_moves, square_selected, is_white_player)
     draw_pieces_online(screen, gs.board, is_white_player)
+    
+    if show_timers and white_time is not None and black_time is not None:
+        if is_white_player:
+            draw_timer(screen, black_time, "top", not gs.white_to_move)
+            draw_timer(screen, white_time, "bottom", gs.white_to_move)
+        else:
+            draw_timer(screen, white_time, "top", gs.white_to_move)
+            draw_timer(screen, black_time, "bottom", not gs.white_to_move)
 
 def draw_board(screen):
+    # Fill timer panel area with black background
+    pg.draw.rect(screen, pg.Color("black"), pg.Rect(0, 0, TIMER_PANEL_WIDTH, HEIGHT))
+    # Draw chess board
     for r in range(DIMENSION):
         for c in range(DIMENSION):
             color = colors[((r + c) % 2)]
-            pg.draw.rect(screen, color, pg.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+            pg.draw.rect(screen, color, pg.Rect(TIMER_PANEL_WIDTH + c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
 
 def draw_board_online(screen, is_white_player):
     """Draw board flipped for black player"""
+    # Fill timer panel area with black background
+    pg.draw.rect(screen, pg.Color("black"), pg.Rect(0, 0, TIMER_PANEL_WIDTH, HEIGHT))
+    # Draw chess board
     for r in range(DIMENSION):
         for c in range(DIMENSION):
             color = colors[((r + c) % 2)]
             if is_white_player:
-                pg.draw.rect(screen, color, pg.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                pg.draw.rect(screen, color, pg.Rect(TIMER_PANEL_WIDTH + c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
             else:
-                pg.draw.rect(screen, color, pg.Rect((7-c)*SQ_SIZE, (7-r)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                pg.draw.rect(screen, color, pg.Rect(TIMER_PANEL_WIDTH + (7-c)*SQ_SIZE, (7-r)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
     
 
 def draw_pieces(screen, board):
@@ -1000,7 +1303,7 @@ def draw_pieces(screen, board):
         for c in range(DIMENSION):
             piece = board[r][c]
             if piece != "--":
-                screen.blit(IMAGES[piece], pg.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                screen.blit(IMAGES[piece], pg.Rect(TIMER_PANEL_WIDTH + c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
 
 def draw_pieces_online(screen, board, is_white_player):
     """Draw pieces with board flipped for black player"""
@@ -1009,9 +1312,9 @@ def draw_pieces_online(screen, board, is_white_player):
             piece = board[r][c]
             if piece != "--":
                 if is_white_player:
-                    screen.blit(IMAGES[piece], pg.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                    screen.blit(IMAGES[piece], pg.Rect(TIMER_PANEL_WIDTH + c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
                 else:
-                    screen.blit(IMAGES[piece], pg.Rect((7-c)*SQ_SIZE, (7-r)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                    screen.blit(IMAGES[piece], pg.Rect(TIMER_PANEL_WIDTH + (7-c)*SQ_SIZE, (7-r)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
 
 def hight_light_squares_online(screen, gs, valid_moves, square_selected, is_white_player):
     """Highlight squares with board flipped for black player"""
@@ -1023,19 +1326,19 @@ def hight_light_squares_online(screen, gs, valid_moves, square_selected, is_whit
             s.fill(pg.Color('blue'))
             
             if is_white_player:
-                screen.blit(s, (c*SQ_SIZE, r*SQ_SIZE))
+                screen.blit(s, (TIMER_PANEL_WIDTH + c*SQ_SIZE, r*SQ_SIZE))
             else:
-                screen.blit(s, ((7-c)*SQ_SIZE, (7-r)*SQ_SIZE))
+                screen.blit(s, (TIMER_PANEL_WIDTH + (7-c)*SQ_SIZE, (7-r)*SQ_SIZE))
             
             s.fill(pg.Color('yellow'))
             for move in valid_moves:
                 if move.start_row == r and move.start_col == c:
                     if is_white_player:
-                        screen.blit(s, (move.end_col*SQ_SIZE, move.end_row*SQ_SIZE))
+                        screen.blit(s, (TIMER_PANEL_WIDTH + move.end_col*SQ_SIZE, move.end_row*SQ_SIZE))
                     else:
-                        screen.blit(s, ((7-move.end_col)*SQ_SIZE, (7-move.end_row)*SQ_SIZE))
+                        screen.blit(s, (TIMER_PANEL_WIDTH + (7-move.end_col)*SQ_SIZE, (7-move.end_row)*SQ_SIZE))
 
-def animation_move(move, screen, board, clock, is_white_player=True):
+def animation_move(move, screen, board, clock, is_white_player=True, white_time=None, black_time=None, white_to_move=True, show_timers=False):
     global colors
     dR = move.end_row - move.start_row
     dC = move.end_col - move.start_col
@@ -1049,6 +1352,15 @@ def animation_move(move, screen, board, clock, is_white_player=True):
         else:
             draw_board_online(screen, is_white_player)
         
+        # Draw timers during animation to prevent flickering
+        if show_timers and white_time is not None and black_time is not None:
+            if is_white_player:
+                draw_timer(screen, black_time, "top", not white_to_move)
+                draw_timer(screen, white_time, "bottom", white_to_move)
+            else:
+                draw_timer(screen, white_time, "top", white_to_move)
+                draw_timer(screen, black_time, "bottom", not white_to_move)
+        
         for row in range(DIMENSION):
             for col in range(DIMENSION):
                 piece = board[row][col]
@@ -1056,20 +1368,20 @@ def animation_move(move, screen, board, clock, is_white_player=True):
                     if row == move.end_row and col == move.end_col:
                         continue
                     if is_white_player:
-                        screen.blit(IMAGES[piece], pg.Rect(col*SQ_SIZE, row*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                        screen.blit(IMAGES[piece], pg.Rect(TIMER_PANEL_WIDTH + col*SQ_SIZE, row*SQ_SIZE, SQ_SIZE, SQ_SIZE))
                     else:
-                        screen.blit(IMAGES[piece], pg.Rect((7-col)*SQ_SIZE, (7-row)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                        screen.blit(IMAGES[piece], pg.Rect(TIMER_PANEL_WIDTH + (7-col)*SQ_SIZE, (7-row)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
                 
                 if row == move.end_row and col == move.end_col and move.piece_captured != "--" and frame < frame_count:
                     if is_white_player:
-                        screen.blit(IMAGES[move.piece_captured], pg.Rect(col*SQ_SIZE, row*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                        screen.blit(IMAGES[move.piece_captured], pg.Rect(TIMER_PANEL_WIDTH + col*SQ_SIZE, row*SQ_SIZE, SQ_SIZE, SQ_SIZE))
                     else:
-                        screen.blit(IMAGES[move.piece_captured], pg.Rect((7-col)*SQ_SIZE, (7-row)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                        screen.blit(IMAGES[move.piece_captured], pg.Rect(TIMER_PANEL_WIDTH + (7-col)*SQ_SIZE, (7-row)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
         
         if is_white_player:
-            screen.blit(IMAGES[move.piece_moved], pg.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+            screen.blit(IMAGES[move.piece_moved], pg.Rect(TIMER_PANEL_WIDTH + c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
         else:
-            screen.blit(IMAGES[move.piece_moved], pg.Rect((7-c)*SQ_SIZE, (7-r)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+            screen.blit(IMAGES[move.piece_moved], pg.Rect(TIMER_PANEL_WIDTH + (7-c)*SQ_SIZE, (7-r)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
         
         pg.display.flip()
         clock.tick(60)

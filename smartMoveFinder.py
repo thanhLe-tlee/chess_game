@@ -13,7 +13,14 @@ def find_best_move(gs, valid_moves):
     next_move = None
     random.shuffle(valid_moves)
     find_move_negamax_alpha_beta(gs, valid_moves, DEPTH, -CHECK_MATE, CHECK_MATE, 1 if gs.white_to_move else -1)
-    # find_move_min_max(gs, valid_moves, DEPTH, gs.white_to_move)
+    return next_move
+
+def find_best_move_minmax(gs, valid_moves):
+    """Wrapper function for easier difficulty - uses min-max algorithm"""
+    global next_move
+    next_move = None
+    random.shuffle(valid_moves)
+    find_move_min_max(gs, valid_moves, DEPTH, gs.white_to_move)
     return next_move
 
 def find_move_min_max(gs, valid_moves, depth, white_to_move):
