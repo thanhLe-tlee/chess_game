@@ -44,6 +44,7 @@ class GameSession:
         self.lock = threading.Lock()
         self.players: Dict[str, socket.socket] = {}
         self.rematch_requests: Dict[str, bool] = {}
+        self.game_active = False
 
     def assign_slot(self, conn: socket.socket) -> Optional[str]:
         with self.lock:
@@ -52,6 +53,8 @@ class GameSession:
                     if not self.players:
                         self.state = chessEngine.GameState()
                     self.players[color] = conn
+                    if len(self.players) == 2:
+                        self.game_active = True
                     return color
         return None
 
@@ -60,6 +63,8 @@ class GameSession:
             self.players.pop(color, None)
             if not self.players:
                 self.state = chessEngine.GameState()
+                self.game_active = False
+                self.rematch_requests.clear()
 
     def get_state(self):
         with self.lock:
@@ -77,6 +82,7 @@ class GameSession:
                 # Both players want rematch
                 self.rematch_requests.clear()
                 self.state = chessEngine.GameState()
+                self.game_active = True
                 return "rematch_accepted"
             else:
                 return "waiting_for_opponent"
@@ -92,6 +98,7 @@ class GameSession:
             if len(self.rematch_requests) == 2 and all(self.rematch_requests.values()):
                 self.rematch_requests.clear()
                 self.state = chessEngine.GameState()
+                self.game_active = True
                 return "rematch_accepted"
             elif len(self.rematch_requests) == 1:
                 return "waiting_for_opponent"
@@ -105,6 +112,8 @@ class GameSession:
 
 
 session = GameSession()
+matchmaking_queue = []
+matchmaking_lock = threading.Lock()
 
 
 def handle_client(conn: socket.socket, addr, color: str) -> None:
@@ -148,18 +157,38 @@ def main() -> None:
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((HOST, PORT))
-    server.listen(2)
+    server.listen(10)
     print(f"Chess server listening on {HOST}:{PORT}")
 
     while True:
         conn, addr = server.accept()
-        color = session.assign_slot(conn)
-        if color is None:
-            print(f"Rejecting connection from {addr}: game in progress")
-            send_payload(conn, "server_full")
-            conn.close()
-            continue
-        threading.Thread(target=handle_client, args=(conn, addr, color), daemon=True).start()
+        print(f"New connection from {addr}")
+        
+        # Add to matchmaking queue
+        with matchmaking_lock:
+            matchmaking_queue.append(conn)
+            print(f"Player added to queue. Queue size: {len(matchmaking_queue)}")
+            
+            # Try to match two players
+            if len(matchmaking_queue) >= 2:
+                player1_conn = matchmaking_queue.pop(0)
+                player2_conn = matchmaking_queue.pop(0)
+                
+                # Assign colors
+                color1 = session.assign_slot(player1_conn)
+                color2 = session.assign_slot(player2_conn)
+                
+                if color1 and color2:
+                    print(f"Matched two players: {color1} and {color2}")
+                    threading.Thread(target=handle_client, args=(player1_conn, addr, color1), daemon=True).start()
+                    threading.Thread(target=handle_client, args=(player2_conn, addr, color2), daemon=True).start()
+                else:
+                    # Something went wrong, close connections
+                    try:
+                        player1_conn.close()
+                        player2_conn.close()
+                    except:
+                        pass
 
 
 if __name__ == "__main__":
