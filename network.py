@@ -1,6 +1,4 @@
-"""Client-side networking helpers for online chess play."""
 from __future__ import annotations
-
 import os
 import pickle
 import socket
