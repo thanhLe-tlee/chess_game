@@ -356,7 +356,7 @@ def draw_waiting_screen(screen, message):
         screen.blit(text, text_rect)
     pg.display.flip()
 
-def wait_for_rematch(screen, clock, network, timeout=5000):
+def wait_for_rematch(screen, clock, network, timeout=20000):
     """Wait for opponent to accept rematch with timeout"""
     start_time = pg.time.get_ticks()
     
@@ -1339,13 +1339,14 @@ def show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, 
                             try:
                                 response = network.send("request_rematch")
                                 if response == "rematch_accepted":
-                                    # Both players immediately agreed
+                                    # Both players immediately agreed - both return to game
                                     return "rematch"
                                 elif response == "waiting_for_opponent":
-                                    # Wait for opponent
+                                    # Wait for opponent to accept
                                     if wait_for_rematch(screen, clock, network):
                                         return "rematch"
                                     else:
+                                        # Rematch was cancelled or timed out
                                         return "quit"
                             except NetworkError:
                                 return "quit"
