@@ -679,24 +679,23 @@ def play_online_game(screen, clock):
                 if action == "rematch":
                     # Reset game state for rematch
                     try:
-                        # Wait for both players to be ready after rematch
+                        # Synchronize both players before countdown
+                        draw_waiting_screen(screen, "Preparing rematch...")
                         both_ready = False
                         while not both_ready:
-                            for event in pg.event.get():
-                                if event.type == pg.QUIT:
-                                    if network is not None:
-                                        network.close()
-                                    return
-                            
-                            both_ready = network.send("check_both_ready")
-                            if not both_ready:
-                                draw_waiting_screen(screen, "Waiting for opponent to be ready...")
-                                clock.tick(10)
+                            try:
+                                both_ready = network.send("check_both_ready")
+                                if not both_ready:
+                                    pg.time.wait(100)
+                            except NetworkError:
+                                if network is not None:
+                                    network.close()
+                                return
                         
-                        # Show countdown
+                        # Show countdown - synchronized for both players
                         for countdown in range(3, 0, -1):
                             draw_waiting_screen(screen, f"Game starting in {countdown}...")
-                            pg.time.wait(350)
+                            pg.time.wait(1000)
                         
                         gs = network.send("get")
                         if not gs:
@@ -748,24 +747,23 @@ def play_online_game(screen, clock):
                 if action == "rematch":
                     # Reset game state for rematch
                     try:
-                        # Wait for both players to be ready after rematch
+                        # Synchronize both players before countdown
+                        draw_waiting_screen(screen, "Preparing rematch...")
                         both_ready = False
                         while not both_ready:
-                            for event in pg.event.get():
-                                if event.type == pg.QUIT:
-                                    if network is not None:
-                                        network.close()
-                                    return
-                            
-                            both_ready = network.send("check_both_ready")
-                            if not both_ready:
-                                draw_waiting_screen(screen, "Waiting for opponent to be ready...")
-                                clock.tick(10)
+                            try:
+                                both_ready = network.send("check_both_ready")
+                                if not both_ready:
+                                    pg.time.wait(100)
+                            except NetworkError:
+                                if network is not None:
+                                    network.close()
+                                return
                         
-                        # Show countdown
+                        # Show countdown - synchronized for both players
                         for countdown in range(3, 0, -1):
                             draw_waiting_screen(screen, f"Game starting in {countdown}...")
-                            pg.time.wait(350)
+                            pg.time.wait(1000)
                         
                         gs = network.send("get")
                         if not gs:
@@ -1388,6 +1386,16 @@ def show_game_over_menu_online(screen, clock, gs, valid_moves, square_selected, 
         clock.tick(MAX_FPS)
 
 def hight_light_squares(screen, gs, valid_moves, square_selected):
+    # Highlight last move made
+    if gs.move_log:
+        last_move = gs.move_log[-1]
+        s = pg.Surface((SQ_SIZE, SQ_SIZE))
+        s.set_alpha(120)
+        s.fill(pg.Color(255, 255, 150))  # Light yellow for last move
+        screen.blit(s, (TIMER_PANEL_WIDTH + last_move.start_col*SQ_SIZE, last_move.start_row*SQ_SIZE))
+        screen.blit(s, (TIMER_PANEL_WIDTH + last_move.end_col*SQ_SIZE, last_move.end_row*SQ_SIZE))
+    
+    # Highlight selected square and valid moves
     if square_selected != ():
         r, c = square_selected
         if gs.board[r][c][0] == ('w' if gs.white_to_move else 'b'):
@@ -1493,6 +1501,21 @@ def draw_pieces_online(screen, board, is_white_player):
 
 def hight_light_squares_online(screen, gs, valid_moves, square_selected, is_white_player):
     """Highlight squares with board flipped for black player"""
+    # Highlight last move made
+    if gs.move_log:
+        last_move = gs.move_log[-1]
+        s = pg.Surface((SQ_SIZE, SQ_SIZE))
+        s.set_alpha(120)
+        s.fill(pg.Color(255, 255, 150))  # Light yellow for last move
+        
+        if is_white_player:
+            screen.blit(s, (TIMER_PANEL_WIDTH + last_move.start_col*SQ_SIZE, last_move.start_row*SQ_SIZE))
+            screen.blit(s, (TIMER_PANEL_WIDTH + last_move.end_col*SQ_SIZE, last_move.end_row*SQ_SIZE))
+        else:
+            screen.blit(s, (TIMER_PANEL_WIDTH + (7-last_move.start_col)*SQ_SIZE, (7-last_move.start_row)*SQ_SIZE))
+            screen.blit(s, (TIMER_PANEL_WIDTH + (7-last_move.end_col)*SQ_SIZE, (7-last_move.end_row)*SQ_SIZE))
+    
+    # Highlight selected square and valid moves
     if square_selected != ():
         r, c = square_selected
         if gs.board[r][c][0] == ('w' if gs.white_to_move else 'b'):

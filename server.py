@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import pickle
+import random
 import socket
 import struct
 import threading
@@ -48,12 +49,20 @@ class GameSession:
 
     def assign_slot(self, conn: socket.socket) -> Optional[str]:
         with self.lock:
-            for color in ("white", "black"):
-                if color not in self.players:
-                    if not self.players:
-                        self.state = chessEngine.GameState()
-                    self.players[color] = conn
-                    return color
+            # If no players connected yet, randomly assign first color
+            if not self.players:
+                first_color = random.choice(["white", "black"])
+                self.state = chessEngine.GameState()
+                self.players[first_color] = conn
+                return first_color
+            # Second player gets the opposite color
+            elif len(self.players) == 1:
+                if "white" in self.players:
+                    self.players["black"] = conn
+                    return "black"
+                else:
+                    self.players["white"] = conn
+                    return "white"
         return None
 
     def release_slot(self, color: str) -> None:
@@ -102,12 +111,13 @@ class GameSession:
     def both_players_ready(self) -> bool:
         """Check if both players are connected"""
         with self.lock:
-            ready = len(self.players) == 2
-            if ready and self.rematch_accepted:
-                # Reset rematch state when both players are ready for new game
+            if self.rematch_accepted and len(self.players) == 2:
+                # During rematch, immediately return True since players are already connected
+                # Reset rematch state when both players confirm they're ready
                 self.rematch_accepted = False
                 self.rematch_requests.clear()
-            return ready
+                return True
+            return len(self.players) == 2
 
 
 session = GameSession()
