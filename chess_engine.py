@@ -43,7 +43,8 @@ class GameState:
             self.black_king_location = (move.end_row, move.end_col)
         
         if move.is_pawn_promotion:
-            self.board[move.end_row][move.end_col] = move.piece_moved[0] + "Q"
+            promotion_piece = move.promotion_choice if move.promotion_choice else 'Q'
+            self.board[move.end_row][move.end_col] = move.piece_moved[0] + promotion_piece
 
         if move.is_en_passant_move:
             self.board[move.start_row][move.end_col] = "--"
@@ -428,7 +429,6 @@ class GameState:
         if (self.board[r][c-1] == "--" and self.board[r][c-2] == "--" and self.board[r][c-3] == "--"):
             if not self.square_under_attack(r, c-1) and not self.square_under_attack(r, c-2):
                 moves.append(Move((r, c), (r, c-2), self.board, is_castle_move=True))
-                moves.append(Move((r, c - 4), (r, c - 1), self.board, is_castle_move=True))
     
     def get_board_hash(self):
         """Create a hashable representation of the current board position"""
@@ -458,7 +458,7 @@ class Move():
                     "e":4, "f":5, "g":6, "h":7}
     cols_to_file = {v: k for k, v in file_to_cols.items()}
 
-    def __init__(self, start_sq, end_sq, board, is_en_passant_move = False, is_castle_move = False):
+    def __init__(self, start_sq, end_sq, board, is_en_passant_move = False, is_castle_move = False, promotion_choice=None):
         self.start_row = start_sq[0]
         self.start_col = start_sq[1]
         self.end_row = end_sq[0]
@@ -466,6 +466,7 @@ class Move():
         self.piece_moved = board[self.start_row][self.start_col]
         self.piece_captured = board[self.end_row][self.end_col]
         self.is_pawn_promotion = (self.piece_moved == 'wP' and self.end_row == 0) or (self.piece_moved == 'bP' and self.end_row == 7)
+        self.promotion_choice = promotion_choice
 
         # self.is_en_passant_move = (self.piece_moved[1] == 'P' and (self.end_row, self.end_col) == en_passant_possible)
         self.is_en_passant_move = is_en_passant_move

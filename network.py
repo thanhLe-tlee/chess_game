@@ -7,7 +7,7 @@ import socket
 import struct
 from typing import Any, Optional
 
-_DEFAULT_HOST = os.getenv("CHESS_SERVER_HOST", "127.0.0.1")
+_DEFAULT_HOST = os.getenv("CHESS_SERVER_HOST", "26.43.140.196")
 _DEFAULT_PORT = int(os.getenv("CHESS_SERVER_PORT", "5000"))
 _HEADER_STRUCT = struct.Struct("!I")  # 4-byte unsigned int length prefix
 
@@ -35,8 +35,6 @@ class Network:
             sock.settimeout(self.timeout)
             self._socket = sock
             color = self._await_payload()
-            if color == "server_full":
-                raise NetworkError("Server already has two active players")
             if not isinstance(color, str):
                 raise NetworkError("Unexpected handshake payload from server")
             return color
